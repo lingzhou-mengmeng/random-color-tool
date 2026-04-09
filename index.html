@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <title>随机颜色反应</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { width: 100%; height: 100vh; background-color: #ff0000; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; font-family: system-ui; transition: background-color 0.02s linear; position: relative; cursor: pointer; }
+        .speed-card { position: fixed; top: 20px; right: 20px; background: rgba(0,0,0,0.7); backdrop-filter: blur(14px); border-radius: 28px; padding: 12px 18px; min-width: 160px; border: 1px solid rgba(255,255,255,0.25); z-index: 100; pointer-events: auto; }
+        .speed-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; color: white; font-size: 0.7rem; }
+        .speed-header span:first-child { background: rgba(255,255,255,0.2); padding: 2px 10px; border-radius: 40px; }
+        .freq-value { font-size: 0.9rem; font-weight: bold; background: #ffffffdd; color: #000; padding: 2px 10px; border-radius: 30px; font-family: monospace; }
+        .counter-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; margin-bottom: 6px; color: #f0f0f0; font-size: 0.7rem; background: rgba(255,255,255,0.15); padding: 5px 10px; border-radius: 40px; }
+        .counter-number { font-weight: 800; font-size: 1rem; font-family: monospace; background: #00000066; padding: 0 8px; border-radius: 20px; color: #ffffaa; }
+        input[type="range"] { width: 100%; height: 4px; -webkit-appearance: none; background: linear-gradient(90deg, #ff9999, #ffdd99, #99ff99, #9999ff); border-radius: 10px; margin: 6px 0 4px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: white; border-radius: 50%; border: 2px solid #fff; cursor: pointer; }
+        .speed-hint { font-size: 0.55rem; color: #ccc; display: flex; justify-content: space-between; margin-top: 4px; }
+        .live-badge { font-size: 9px; text-align: center; color: #aaa; margin-top: 6px; }
+        .timer-wrapper { width: 100%; display: flex; justify-content: center; margin-bottom: 15vh; }
+        .timer-box { background: rgba(0,0,0,0.7); backdrop-filter: blur(16px); padding: 12px 32px; border-radius: 80px; pointer-events: none; }
+        .timer { font-size: 4rem; font-weight: 800; font-family: monospace; letter-spacing: 4px; color: #fff; text-shadow: 0 0 8px #00000088; min-width: 240px; text-align: center; }
+        .status-badge { position: fixed; bottom: 20px; left: 0; right: 0; text-align: center; font-size: 12px; color: white; background: rgba(0,0,0,0.55); width: fit-content; margin: 0 auto; padding: 5px 18px; border-radius: 60px; backdrop-filter: blur(8px); pointer-events: none; z-index: 99; }
+        .click-hint { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,0.6); backdrop-filter: blur(12px); color: white; padding: 8px 20px; border-radius: 50px; font-size: 14px; white-space: nowrap; pointer-events: none; opacity: 0; transition: 0.2s; z-index: 200; }
+        @media (max-width:550px){ .speed-card{top:12px;right:12px;padding:10px 12px;min-width:140px} .timer{font-size:2.8rem;min-width:180px} .timer-wrapper{margin-bottom:12vh} }
+    </style>
+</head>
+<body>
+    <div class="speed-card" id="speedControl">
+        <div class="speed-header"><span> 频率</span><span class="freq-value" id="freqLabel">0.50 s</span></div>
+        <input type="range" id="speedSlider" min="50" max="4000" step="10" value="500">
+        <div class="speed-hint"><span> 0.05s</span><span> 4.0s</span></div>
+        <div class="counter-row"><span class="counter-label"> 切换次数</span><span class="counter-number" id="switchCountDisplay">0</span></div>
+        <div class="live-badge"> 实时生效</div>
+    </div>
+    <div class="timer-wrapper"><div class="timer-box"><div class="timer" id="timerDisplay">0.00 s</div></div></div>
+    <div class="status-badge" id="statusBadge">⚪ 已暂停 · 点击屏幕开始</div>
+    <div class="click-hint" id="clickHint"> 点击任意颜色区域 </div>
+    <script>
+        const COLORS=["rgb(255,0,0)","rgb(0,255,0)","rgb(0,0,255)"];
+        const bodyEl=document.body;
+        const timerDisplay=document.getElementById("timerDisplay");
+        const speedSlider=document.getElementById("speedSlider");
+        const freqLabel=document.getElementById("freqLabel");
+        const statusBadge=document.getElementById("statusBadge");
+        const clickHint=document.getElementById("clickHint");
+        const switchCountDisplay=document.getElementById("switchCountDisplay");
+        let isRunning=false, currentBgColor=COLORS[0], switchIntervalId=null, animationFrameId=null, startTime=0, currentIntervalMs=500, actualSwitchCount=0;
+        function updateFreqLabel(ms){freqLabel.innerText=(ms/1000).toFixed(2)+" s";}
+        function updateSwitchCountDisplay(v){switchCountDisplay.innerText=v;}
+        function getDifferentRandomColor(c){let avail=COLORS.filter(c2=>c2!==c); return avail[Math.floor(Math.random()*avail.length)];}
+        function setBackgroundColor(c){bodyEl.style.backgroundColor=c; currentBgColor=c;}
+        function performColorSwitch(){if(!isRunning) return; setBackgroundColor(getDifferentRandomColor(currentBgColor)); actualSwitchCount++; updateSwitchCountDisplay(actualSwitchCount);}
+        function restartColorTimer(){if(!isRunning) return; if(switchIntervalId) clearInterval(switchIntervalId); switchIntervalId=setInterval(()=>{if(isRunning) performColorSwitch();}, currentIntervalMs);}
+        function stopGame(){if(!isRunning) return; if(switchIntervalId) clearInterval(switchIntervalId); if(animationFrameId) cancelAnimationFrame(animationFrameId); isRunning=false; statusBadge.innerHTML="⏸ 已暂停 · 点击屏幕开始"; showHintMessage();}
+        function updateTimerLoop(){if(!isRunning) return; timerDisplay.innerText=((performance.now()-startTime)/1000).toFixed(2)+" s"; animationFrameId=requestAnimationFrame(updateTimerLoop);}
+        function startNewGame(){if(isRunning){if(switchIntervalId) clearInterval(switchIntervalId); if(animationFrameId) cancelAnimationFrame(animationFrameId); isRunning=false;}
+            timerDisplay.innerText="0.00 s"; actualSwitchCount=0; updateSwitchCountDisplay(0); startTime=performance.now(); setBackgroundColor(getDifferentRandomColor(currentBgColor)); isRunning=true;
+            animationFrameId=requestAnimationFrame(updateTimerLoop);
+            switchIntervalId=setInterval(()=>{if(isRunning) performColorSwitch();}, currentIntervalMs);
+            statusBadge.innerHTML=" 随机反应中 · 点击屏幕暂停"; showHintMessage();
+        }
+        function showHintMessage(){if(window.hintTimeout) clearTimeout(window.hintTimeout); clickHint.style.opacity="0.9"; window.hintTimeout=setTimeout(()=>clickHint.style.opacity="0",800);}
+        function handleGlobalClick(e){if(document.getElementById("speedControl").contains(e.target)) return; if(isRunning) stopGame(); else startNewGame();}
+        function onSpeedChange(){let newMs=parseInt(speedSlider.value); if(isNaN(newMs)) return; currentIntervalMs=newMs; updateFreqLabel(currentIntervalMs); if(isRunning){if(switchIntervalId) clearInterval(switchIntervalId); switchIntervalId=setInterval(()=>{if(isRunning) performColorSwitch();}, currentIntervalMs);}}
+        function init(){setBackgroundColor(COLORS[Math.floor(Math.random()*COLORS.length)]); timerDisplay.innerText="0.00 s"; actualSwitchCount=0; updateSwitchCountDisplay(0); isRunning=false; speedSlider.min="50"; speedSlider.max="4000"; speedSlider.value="500"; currentIntervalMs=500; updateFreqLabel(500); bodyEl.addEventListener("click",handleGlobalClick); speedSlider.addEventListener("input",(e)=>{let ms=parseInt(e.target.value); currentIntervalMs=ms; updateFreqLabel(ms); if(isRunning){if(switchIntervalId) clearInterval(switchIntervalId); switchIntervalId=setInterval(()=>{if(isRunning) performColorSwitch();}, currentIntervalMs);}}); window.addEventListener("beforeunload",()=>{if(switchIntervalId) clearInterval(switchIntervalId); if(animationFrameId) cancelAnimationFrame(animationFrameId);}); setTimeout(showHintMessage,300);}
+        init();
+        // 注册 Service Worker 实现离线缓存
+        if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').then(reg=>console.log('SW registered',reg)).catch(err=>console.log('SW failed',err)); }
+    </script>
+</body>
+</html>
